@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { Player } from '@/game/Player';
 import { Enemy, EnemyType } from '@/game/Enemy';
 import { Bullet } from '@/game/Bullet';
@@ -96,7 +96,7 @@ export default function Game() {
   const containerRef = useRef<HTMLDivElement>(null);
   const enemiesRef = useRef<Enemy[]>([]);
   const keysPressed = useRef<Set<string>>(new Set());
-  const waveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const waveTimeoutRef = useRef<number | null>(null);
   const currentWaveRef = useRef<number>(0);
   const difficultyConfigRef = useRef(getDifficultyConfig(1));
   const [gameState, setGameState] = useState<GameState>({
@@ -123,6 +123,7 @@ export default function Game() {
   const [isMovingDown, setIsMovingDown] = useState(false);
   const [showLevelText, setShowLevelText] = useState(false);
   const [gameOverFadeIn, setGameOverFadeIn] = useState(false);
+  const gameOverTimeoutRef = useRef<number | null>(null);
 
   // Update difficulty config when level changes
   useEffect(() => {
@@ -238,7 +239,7 @@ export default function Game() {
 
     // Schedule next wave with level-adjusted delay
     if (waveNumber < config.maxWaves - 1) {
-      waveTimeoutRef.current = setTimeout(() => {
+      waveTimeoutRef.current = window.setTimeout(() => {
         currentWaveRef.current++;
         spawnEnemyWave(level, currentWaveRef.current, ctx);
       }, config.waveDelay);
@@ -315,7 +316,7 @@ export default function Game() {
   };
 
   // Reset game
-  const resetGame = () => {
+  const resetGame = useCallback(() => {
     if (waveTimeoutRef.current) {
       clearTimeout(waveTimeoutRef.current);
     }
@@ -335,7 +336,7 @@ export default function Game() {
       level: 1
     });
     setGameOverFadeIn(false);
-  };
+  }, []);
 
   // Handle audio volume changes
   const handleSoundVolumeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -607,10 +608,18 @@ export default function Game() {
             // Play player damage sound
             audioManager.play('playerDamage');
             
-            const health = gameState.health - 1;
-            if (health <= 0) {
-              // Game over, show player explosion
-              createGIFExplosion(player.x + player.width / 2, player.y + player.height / 2, 'player');
+            // Check if this hit will reduce health to zero
+            const newHealth = gameState.health - 1;
+            if (newHealth <= 0) {
+              // Play explosion sound
+              audioManager.play('playerExplode');
+              
+              // Create player explosion effect
+              createGIFExplosion(
+                player.x + player.width / 2,
+                player.y + player.height / 2,
+                'player'
+              );
               
               // Set game over state immediately to show the text
               setGameState(prev => ({
@@ -618,11 +627,6 @@ export default function Game() {
                 health: prev.health - 1,
                 isGameOver: true
               }));
-              
-              // Wait 2 seconds before fading in the black background
-              setTimeout(() => {
-                setGameOverFadeIn(true);
-              }, 2000);
               
               return; // Skip the normal setGameState call below
             }
@@ -959,6 +963,39 @@ export default function Game() {
       }, 100);
     }, 2500); // 2.5 seconds
   };
+
+  // Clean up the timeout when the component unmounts
+  useEffect(() => {
+    return () => {
+      if (gameOverTimeoutRef.current !== null) {
+        window.clearTimeout(gameOverTimeoutRef.current);
+      }
+    };
+  }, []);
+  
+  // Add an effect to manage the game over fade
+  useEffect(() => {
+    if (gameState.isGameOver) {
+      // Clear any existing timeout
+      if (gameOverTimeoutRef.current !== null) {
+        window.clearTimeout(gameOverTimeoutRef.current);
+      }
+      
+      // Set a new timeout for the fade effect
+      gameOverTimeoutRef.current = window.setTimeout(() => {
+        setGameOverFadeIn(true);
+      }, 2000);
+    } else {
+      // Reset the fade state when not game over
+      setGameOverFadeIn(false);
+    }
+    
+    return () => {
+      if (gameOverTimeoutRef.current !== null) {
+        window.clearTimeout(gameOverTimeoutRef.current);
+      }
+    };
+  }, [gameState.isGameOver]);
 
   return (
     <div 
