@@ -334,7 +334,7 @@ const StartScreen: React.FC<StartScreenProps> = ({ onStartGame }) => {
   const [isHovering, setIsHovering] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const animationRef = useRef<number>(0);
-  const [hearts, setHearts] = useState<Array<{
+  const heartsRef = useRef<Array<{
     x: number;
     y: number;
     size: number;
@@ -354,41 +354,37 @@ const StartScreen: React.FC<StartScreenProps> = ({ onStartGame }) => {
     // Clear canvas
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     
-    // Draw and animate hearts
-    setHearts(prevHearts => 
-      prevHearts.map(heart => {
-        // Move heart up
-        heart.y -= heart.speed;
-        
-        // If heart goes off top of screen, reset to bottom
-        if (heart.y < -heart.size) {
-          heart.y = window.innerHeight + heart.size;
-          heart.x = Math.random() * window.innerWidth;
-        }
-        
-        // Draw heart
-        drawHeart(heart.x, heart.y, heart.size, heart.opacity);
-        
-        return heart;
-      })
-    );
+    // Update and draw hearts without using state setter in animation loop
+    heartsRef.current = heartsRef.current.map(heart => {
+      // Move heart up
+      heart.y -= heart.speed;
+      
+      // If heart goes off top of screen, reset to bottom
+      if (heart.y < -heart.size) {
+        heart.y = window.innerHeight + heart.size;
+        heart.x = Math.random() * window.innerWidth;
+      }
+      
+      // Draw heart
+      drawHeart(heart.x, heart.y, heart.size, heart.opacity);
+      
+      return heart;
+    });
     
     // Continue animation loop
     animationRef.current = requestAnimationFrame(animate);
   }, []);
   
-  // Update useEffect dependencies
+  // Update useEffect to use the heartsRef
   useEffect(() => {
     // Generate initial hearts
-    const initialHearts = Array.from({ length: 40 }, () => ({
+    heartsRef.current = Array.from({ length: 40 }, () => ({
       x: Math.random() * window.innerWidth,
       y: Math.random() * window.innerHeight,
       size: 5 + Math.random() * 20,
       speed: 0.5 + Math.random() * 1.5,
       opacity: 0.1 + Math.random() * 0.3
     }));
-    
-    setHearts(initialHearts);
     
     // Start animation
     animationRef.current = requestAnimationFrame(animate);
@@ -398,7 +394,7 @@ const StartScreen: React.FC<StartScreenProps> = ({ onStartGame }) => {
         cancelAnimationFrame(animationRef.current);
       }
     };
-  }, [animate]); // Include animate in dependencies
+  }, [animate]);
 
   const drawHeart = (x: number, y: number, size: number, opacity: number) => {
     const canvas = canvasRef.current;

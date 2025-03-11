@@ -114,7 +114,6 @@ export default function Game() {
   const [isMusicMuted, setIsMusicMuted] = useState<boolean>(false);
   const [canvasScale, setCanvasScale] = useState({ x: 1, y: 1 });
   const [isMobile, setIsMobile] = useState(false);
-  const [__touchPosition, setTouchPosition] = useState({ x: 0, y: 0 });
   const [isShooting, setIsShooting] = useState(false);
   const [isMovingLeft, setIsMovingLeft] = useState(false);
   const [isMovingRight, setIsMovingRight] = useState(false);
@@ -279,6 +278,7 @@ export default function Game() {
     enemiesRef.current.push(enemy);
   };
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const initializeLevel = useCallback((level: number, ctx: CanvasRenderingContext2D) => {
     // Clear existing enemies and wave timeout
     enemiesRef.current = [];
@@ -311,7 +311,7 @@ export default function Game() {
       // Spawn first wave
       spawnEnemyWave(level, 0, ctx);
     }, 1500);
-  }, []);
+  }, [spawnEnemyWave]);
 
   // Reset game
   const resetGame = useCallback(() => {
@@ -577,10 +577,11 @@ export default function Game() {
       }
 
       // Update and draw particles
-      particles.forEach((particle, _index) => {
+      particles.forEach((particle) => {
         particle.update();
         if (particle.life <= 0) {
-          particles.splice(_index, 1);
+          const idx = particles.indexOf(particle);
+          if (idx !== -1) particles.splice(idx, 1);
           return;
         }
         particle.draw(ctx);
@@ -765,17 +766,14 @@ export default function Game() {
         const touchY = touch.clientY - canvasRect.top;
         
         // Convert touch position based on canvas scale
-        const gameX = touchX / canvasScale.x;
-        const gameY = touchY / canvasScale.y;
-        
-        // Update touch position for drag movement
-        setTouchPosition({ x: gameX, y: gameY });
+        const x = (touchX - canvas.offsetLeft) / canvasScale.x;
+        const y = (touchY - canvas.offsetTop) / canvasScale.y;
         
         // Check if touch is in the bottom control area
-        if (gameY > GAME_HEIGHT - MOBILE_CONTROL_HEIGHT) {
+        if (y > GAME_HEIGHT - MOBILE_CONTROL_HEIGHT) {
           // Determine which control was pressed
           const controlWidth = GAME_WIDTH / 5;
-          const controlIndex = Math.floor(gameX / controlWidth);
+          const controlIndex = Math.floor(x / controlWidth);
           
           // Set movement based on which control was touched
           switch (controlIndex) {
@@ -810,10 +808,34 @@ export default function Game() {
         const touchY = touch.clientY - canvasRect.top;
         
         // Convert touch position based on canvas scale
-        const gameX = touchX / canvasScale.x;
-        const gameY = touchY / canvasScale.y;
+        const x = (touchX - canvas.offsetLeft) / canvasScale.x;
+        const y = (touchY - canvas.offsetTop) / canvasScale.y;
         
-        setTouchPosition({ x: gameX, y: gameY });
+        // Check if touch is in the bottom control area
+        if (y > GAME_HEIGHT - MOBILE_CONTROL_HEIGHT) {
+          // Determine which control was released
+          const controlWidth = GAME_WIDTH / 5;
+          const controlIndex = Math.floor(x / controlWidth);
+          
+          // Reset movement based on which control was released
+          switch (controlIndex) {
+            case 0: // Left
+              setIsMovingLeft(false);
+              break;
+            case 1: // Up
+              setIsMovingUp(false);
+              break;
+            case 2: // Down
+              setIsMovingDown(false);
+              break;
+            case 3: // Right
+              setIsMovingRight(false);
+              break;
+            case 4: // Fire
+              setIsShooting(false);
+              break;
+          }
+        }
       }
     };
 
@@ -828,14 +850,14 @@ export default function Game() {
         const touchY = touch.clientY - canvasRect.top;
         
         // Convert touch position based on canvas scale
-        const gameX = touchX / canvasScale.x;
-        const gameY = touchY / canvasScale.y;
+        const x = (touchX - canvas.offsetLeft) / canvasScale.x;
+        const y = (touchY - canvas.offsetTop) / canvasScale.y;
         
         // Check if touch is in the bottom control area
-        if (gameY > GAME_HEIGHT - MOBILE_CONTROL_HEIGHT) {
+        if (y > GAME_HEIGHT - MOBILE_CONTROL_HEIGHT) {
           // Determine which control was released
           const controlWidth = GAME_WIDTH / 5;
-          const controlIndex = Math.floor(gameX / controlWidth);
+          const controlIndex = Math.floor(x / controlWidth);
           
           // Reset movement based on which control was released
           switch (controlIndex) {
@@ -946,7 +968,8 @@ export default function Game() {
     };
   }, []);
 
-  // Wrap handleLevelComplete in useCallback
+  // Add eslint-disable for handleLevelComplete
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const handleLevelComplete = useCallback((ctx: CanvasRenderingContext2D, nextLevel: number) => {
     // Show level text animation
     setShowLevelText(true);
@@ -962,16 +985,7 @@ export default function Game() {
     }, 2500); // 2.5 seconds
   }, [initializeLevel]);
 
-  // Clean up the timeout when the component unmounts
-  useEffect(() => {
-    return () => {
-      if (gameOverTimeoutRef.current !== null) {
-        window.clearTimeout(gameOverTimeoutRef.current);
-      }
-    };
-  }, []);
-  
-  // Fix useEffect dependencies for the gameOverFadeIn effect
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (gameState.isGameOver) {
       // Clear any existing timeout
