@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import Image from 'next/image';
 
 interface StartScreenProps {
   onStartGame: () => void;
@@ -15,6 +16,9 @@ interface InstructionsPopupProps {
 const EnemyImage: React.FC<{ type: string }> = ({ type }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const imageRef = useRef<HTMLImageElement | null>(null);
+  
+  const forceUpdateKey = useRef(0);
+  const [, forceUpdate] = useState(0);
   
   useEffect(() => {
     if (type === 'tank') {
@@ -55,7 +59,7 @@ const EnemyImage: React.FC<{ type: string }> = ({ type }) => {
       ctx.stroke();
     } else {
       // Load the appropriate image based on enemy type
-      const img = new Image();
+      const img = document.createElement('img');
       
       if (type === 'basic') {
         img.src = 'https://media.veefriends.com/image/upload/v1700083055/veefriends/specials/series2/characters/bad-intentions-competing-shrinkwrapped.png';
@@ -68,14 +72,11 @@ const EnemyImage: React.FC<{ type: string }> = ({ type }) => {
       img.onload = () => {
         imageRef.current = img;
         // Trigger a re-render
-        forceUpdate();
+        forceUpdateKey.current += 1;
+        forceUpdate(forceUpdateKey.current);
       };
     }
   }, [type]);
-  
-  // Hook to force update
-  const [, updateState] = useState<{}>();
-  const forceUpdate = () => updateState({});
   
   // For Tank enemy, render the canvas
   if (type === 'tank') {
@@ -84,10 +85,12 @@ const EnemyImage: React.FC<{ type: string }> = ({ type }) => {
   
   // For image-based enemies, render the image if loaded
   return imageRef.current ? (
-    <img 
+    <Image 
       src={imageRef.current.src} 
       alt={`${type} enemy`} 
-      className="h-16 w-16 object-contain mx-auto mb-2" 
+      className="h-16 w-16 object-contain mx-auto mb-2"
+      width={64}
+      height={64}
     />
   ) : (
     <div className="h-16 w-16 bg-gray-700 animate-pulse rounded-full mx-auto mb-2"></div>
@@ -329,19 +332,60 @@ const InstructionsPopup: React.FC<InstructionsPopupProps> = ({ onClose }) => {
 
 const StartScreen: React.FC<StartScreenProps> = ({ onStartGame }) => {
   const [isHovering, setIsHovering] = useState(false);
-  const [hearts, setHearts] = useState<{ x: number, y: number, size: number, speed: number, opacity: number }[]>([]);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const animationRef = useRef<number | null>(null);
+  const animationRef = useRef<number>(0);
+  const [hearts, setHearts] = useState<Array<{
+    x: number;
+    y: number;
+    size: number;
+    speed: number;
+    opacity: number;
+  }>>([]);
   const [showInstructions, setShowInstructions] = useState(false);
 
+  // Use useCallback to memoize the animate function
+  const animate = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    
+    // Clear canvas
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    
+    // Draw and animate hearts
+    setHearts(prevHearts => 
+      prevHearts.map(heart => {
+        // Move heart up
+        heart.y -= heart.speed;
+        
+        // If heart goes off top of screen, reset to bottom
+        if (heart.y < -heart.size) {
+          heart.y = window.innerHeight + heart.size;
+          heart.x = Math.random() * window.innerWidth;
+        }
+        
+        // Draw heart
+        drawHeart(heart.x, heart.y, heart.size, heart.opacity);
+        
+        return heart;
+      })
+    );
+    
+    // Continue animation loop
+    animationRef.current = requestAnimationFrame(animate);
+  }, []);
+  
+  // Update useEffect dependencies
   useEffect(() => {
-    // Generate random hearts
-    const initialHearts = Array.from({ length: 50 }, () => ({
+    // Generate initial hearts
+    const initialHearts = Array.from({ length: 40 }, () => ({
       x: Math.random() * window.innerWidth,
       y: Math.random() * window.innerHeight,
-      size: Math.random() * 20 + 10,
-      speed: Math.random() * 0.5 + 0.2,
-      opacity: Math.random() * 0.4 + 0.1
+      size: 5 + Math.random() * 20,
+      speed: 0.5 + Math.random() * 1.5,
+      opacity: 0.1 + Math.random() * 0.3
     }));
     
     setHearts(initialHearts);
@@ -354,7 +398,7 @@ const StartScreen: React.FC<StartScreenProps> = ({ onStartGame }) => {
         cancelAnimationFrame(animationRef.current);
       }
     };
-  }, []);
+  }, [animate]); // Include animate in dependencies
 
   const drawHeart = (x: number, y: number, size: number, opacity: number) => {
     const canvas = canvasRef.current;
@@ -395,46 +439,6 @@ const StartScreen: React.FC<StartScreenProps> = ({ onStartGame }) => {
     
     ctx.restore();
   };
-  
-  const animate = () => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-    
-    // Clear canvas
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    
-    // Update and draw hearts
-    const updatedHearts = hearts.map(heart => {
-      // Move hearts upward
-      const newY = heart.y - heart.speed;
-      
-      // Reset hearts that go off-screen
-      if (newY < -heart.size) {
-        return {
-          ...heart,
-          y: canvas.height + heart.size,
-          x: Math.random() * canvas.width
-        };
-      }
-      
-      // Draw heart
-      drawHeart(heart.x, newY, heart.size, heart.opacity);
-      
-      // Return updated heart
-      return {
-        ...heart,
-        y: newY
-      };
-    });
-    
-    setHearts(updatedHearts);
-    
-    // Continue animation
-    animationRef.current = requestAnimationFrame(animate);
-  };
 
   return (
     <div className="w-full h-screen flex flex-col items-center justify-center relative overflow-hidden">
@@ -452,7 +456,7 @@ const StartScreen: React.FC<StartScreenProps> = ({ onStartGame }) => {
       
       {/* Subtitle */}
       <p className="text-2xl text-white mb-12 text-center italic">
-        love's sharp shooter
+        love&apos;s sharp shooter
       </p>
       
       {/* Play button */}

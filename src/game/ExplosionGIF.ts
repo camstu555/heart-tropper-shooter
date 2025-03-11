@@ -216,7 +216,8 @@ export class ExplosionGIF implements GameObject {
   
   // This method is required by the GameObject interface but we're actually
   // rendering via DOM elements instead of on the canvas
-  draw(ctx: CanvasRenderingContext2D) {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  draw(_ctx: CanvasRenderingContext2D) {
     // We don't need to draw on the canvas as we're using DOM elements
     // This method is only here to satisfy the GameObject interface
   }

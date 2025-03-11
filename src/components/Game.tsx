@@ -15,7 +15,6 @@ const GAME_WIDTH = 800;
 const GAME_HEIGHT = 600;
 const INITIAL_HEALTH = 3;
 const STAR_COUNT = 50;
-const WAVE_DELAY = 5000; // 5 seconds between waves
 
 // Mobile control constants
 const MOBILE_CONTROL_HEIGHT = 120; // Height of mobile controls area
@@ -115,7 +114,7 @@ export default function Game() {
   const [isMusicMuted, setIsMusicMuted] = useState<boolean>(false);
   const [canvasScale, setCanvasScale] = useState({ x: 1, y: 1 });
   const [isMobile, setIsMobile] = useState(false);
-  const [touchPosition, setTouchPosition] = useState({ x: 0, y: 0 });
+  const [__touchPosition, setTouchPosition] = useState({ x: 0, y: 0 });
   const [isShooting, setIsShooting] = useState(false);
   const [isMovingLeft, setIsMovingLeft] = useState(false);
   const [isMovingRight, setIsMovingRight] = useState(false);
@@ -138,7 +137,6 @@ export default function Game() {
     }
 
     const startRow = waveNumber;
-    const formationComplexity = config.formationComplexity;
     const enemiesInThisWave = config.baseEnemiesPerWave;
     
     // Choose a random formation
@@ -281,7 +279,7 @@ export default function Game() {
     enemiesRef.current.push(enemy);
   };
 
-  const initializeLevel = (level: number, ctx: CanvasRenderingContext2D) => {
+  const initializeLevel = useCallback((level: number, ctx: CanvasRenderingContext2D) => {
     // Clear existing enemies and wave timeout
     enemiesRef.current = [];
     if (waveTimeoutRef.current) {
@@ -313,7 +311,7 @@ export default function Game() {
       // Spawn first wave
       spawnEnemyWave(level, 0, ctx);
     }, 1500);
-  };
+  }, []);
 
   // Reset game
   const resetGame = useCallback(() => {
@@ -579,10 +577,10 @@ export default function Game() {
       }
 
       // Update and draw particles
-      particles.forEach((particle, index) => {
+      particles.forEach((particle, _index) => {
         particle.update();
         if (particle.life <= 0) {
-          particles.splice(index, 1);
+          particles.splice(_index, 1);
           return;
         }
         particle.draw(ctx);
@@ -948,8 +946,8 @@ export default function Game() {
     };
   }, []);
 
-  // Make the victory and level text handling clearer and more robust
-  const handleLevelComplete = (ctx: CanvasRenderingContext2D, nextLevel: number) => {
+  // Wrap handleLevelComplete in useCallback
+  const handleLevelComplete = useCallback((ctx: CanvasRenderingContext2D, nextLevel: number) => {
     // Show level text animation
     setShowLevelText(true);
     
@@ -962,7 +960,7 @@ export default function Game() {
         setShowLevelText(false);
       }, 100);
     }, 2500); // 2.5 seconds
-  };
+  }, [initializeLevel]);
 
   // Clean up the timeout when the component unmounts
   useEffect(() => {
@@ -973,7 +971,7 @@ export default function Game() {
     };
   }, []);
   
-  // Add an effect to manage the game over fade
+  // Fix useEffect dependencies for the gameOverFadeIn effect
   useEffect(() => {
     if (gameState.isGameOver) {
       // Clear any existing timeout
