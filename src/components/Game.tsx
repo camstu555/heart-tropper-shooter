@@ -128,7 +128,9 @@ export default function Game() {
     difficultyConfigRef.current = getDifficultyConfig(gameState.level);
   }, [gameState.level]);
 
-  const spawnEnemyWave = (level: number, waveNumber: number, ctx: CanvasRenderingContext2D) => {
+  // Fix spawnEnemyWave dependencies by moving createFormation inside
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const spawnEnemyWave = useCallback((level: number, waveNumber: number, ctx: CanvasRenderingContext2D) => {
     const config = difficultyConfigRef.current;
     
     if (waveNumber >= config.maxWaves) {
@@ -137,6 +139,90 @@ export default function Game() {
 
     const startRow = waveNumber;
     const enemiesInThisWave = config.baseEnemiesPerWave;
+    
+    // Define createFormation function inside to avoid dependencies
+    const createFormation = (formation: string, enemyCount: number, startRow: number, level: number) => {
+      // Create different formations based on chosen type
+      switch (formation) {
+        case 'linear':
+          // Basic linear formation
+          for (let col = 0; col < enemyCount; col++) {
+            spawnEnemy(col, startRow, level, enemyCount);
+          }
+          break;
+        
+        case 'v-shape':
+          // V formation
+          for (let col = 0; col < enemyCount; col++) {
+            const offset = Math.abs(col - enemyCount / 2) * 0.7;
+            spawnEnemy(col, startRow + offset, level, enemyCount);
+          }
+          break;
+        
+        case 'arc':
+          // Arc formation
+          for (let col = 0; col < enemyCount; col++) {
+            const angle = (col / (enemyCount - 1)) * Math.PI;
+            const offsetY = Math.sin(angle) * 2;
+            spawnEnemy(col, startRow + offsetY, level, enemyCount);
+          }
+          break;
+        
+        case 'zigzag':
+          // Zigzag formation
+          for (let col = 0; col < enemyCount; col++) {
+            const offset = (col % 2) * 1.5;
+            spawnEnemy(col, startRow + offset, level, enemyCount);
+          }
+          break;
+        
+        case 'diamond':
+          // Diamond formation (for levels with more enemies)
+          const diamondSize = Math.min(4, Math.floor(enemyCount / 3));
+          let diamondIndex = 0;
+          
+          for (let row = 0; row < diamondSize * 2 - 1; row++) {
+            const rowWidth = row < diamondSize 
+              ? row + 1 
+              : diamondSize * 2 - row - 1;
+            
+            for (let i = 0; i < rowWidth; i++) {
+              if (diamondIndex < enemyCount) {
+                const xOffset = (i - (rowWidth - 1) / 2) * 1.5;
+                spawnEnemy(
+                  (enemyCount / 2) + xOffset, 
+                  startRow + row * 0.8,
+                  level, 
+                  enemyCount
+                );
+                diamondIndex++;
+              }
+            }
+          }
+          break;
+        
+        case 'random':
+        default:
+          // Completely random formation
+          for (let col = 0; col < enemyCount; col++) {
+            const randomX = Math.random() * 0.8 + 0.1; // 0.1 to 0.9
+            const randomY = Math.random() * 1.5; 
+            spawnEnemy(
+              randomX * (enemyCount - 1), 
+              startRow + randomY,
+              level, 
+              enemyCount
+            );
+          }
+          break;
+      }
+      
+      // Update enemy count
+      setGameState(prev => ({
+        ...prev,
+        enemyCount: prev.enemyCount + enemyCount
+      }));
+    };
     
     // Choose a random formation
     const formationTypes = [
@@ -148,100 +234,31 @@ export default function Game() {
       'random'
     ];
     
-    // Use waveNumber to ensure variation but also add randomness
-    // Higher levels have more formation types available
-    const availableFormations = Math.min(formationTypes.length, 2 + Math.floor(level / 2));
-    const formationIndex = (waveNumber + Math.floor(Math.random() * 3)) % availableFormations;
-    const formation = formationTypes[formationIndex];
+    // Determine available formations based on level
+    const availableFormations = formationTypes.slice(0, Math.min(formationTypes.length, 1 + Math.floor(level / 2)));
     
-    // Create different formations based on chosen type
-    switch (formation) {
-      case 'linear':
-        // Basic linear formation
-        for (let col = 0; col < enemiesInThisWave; col++) {
-          spawnEnemy(col, startRow, level, enemiesInThisWave);
-        }
-        break;
-        
-      case 'v-shape':
-        // V formation
-        for (let col = 0; col < enemiesInThisWave; col++) {
-          const offset = Math.abs(col - enemiesInThisWave / 2) * 0.7;
-          spawnEnemy(col, startRow + offset, level, enemiesInThisWave);
-        }
-        break;
-        
-      case 'arc':
-        // Arc formation
-        for (let col = 0; col < enemiesInThisWave; col++) {
-          const angle = (col / (enemiesInThisWave - 1)) * Math.PI;
-          const offsetY = Math.sin(angle) * 2;
-          spawnEnemy(col, startRow + offsetY, level, enemiesInThisWave);
-        }
-        break;
-        
-      case 'zigzag':
-        // Zigzag formation
-        for (let col = 0; col < enemiesInThisWave; col++) {
-          const offset = (col % 2) * 1.5;
-          spawnEnemy(col, startRow + offset, level, enemiesInThisWave);
-        }
-        break;
-        
-      case 'diamond':
-        // Diamond formation (for levels with more enemies)
-        const diamondSize = Math.min(4, Math.floor(enemiesInThisWave / 3));
-        let diamondIndex = 0;
-        
-        for (let row = 0; row < diamondSize * 2 - 1; row++) {
-          const rowWidth = row < diamondSize 
-            ? row + 1 
-            : diamondSize * 2 - row - 1;
-          
-          for (let i = 0; i < rowWidth; i++) {
-            if (diamondIndex < enemiesInThisWave) {
-              const xOffset = (i - (rowWidth - 1) / 2) * 1.5;
-              spawnEnemy(
-                (enemiesInThisWave / 2) + xOffset, 
-                startRow + row * 0.8,
-                level, 
-                enemiesInThisWave
-              );
-              diamondIndex++;
-            }
-          }
-        }
-        break;
-        
-      case 'random':
-      default:
-        // Completely random formation
-        for (let col = 0; col < enemiesInThisWave; col++) {
-          const randomX = Math.random() * 0.8 + 0.1; // 0.1 to 0.9
-          const randomY = Math.random() * 1.5; 
-          spawnEnemy(
-            randomX * (enemiesInThisWave - 1), 
-            startRow + randomY,
-            level, 
-            enemiesInThisWave
-          );
-        }
-        break;
+    // Generate a random formation for this wave, but ensure variety by not using the same formation twice in a row
+    let formationType;
+    if (currentWaveRef.current === 0) {
+      // Use linear formation for the first wave on level 1 for easier start
+      formationType = level === 1 ? 'linear' : availableFormations[Math.floor(Math.random() * availableFormations.length)];
+    } else {
+      formationType = availableFormations[Math.floor(Math.random() * availableFormations.length)];
     }
-
-    setGameState(prev => ({
-      ...prev,
-      enemyCount: prev.enemyCount + enemiesInThisWave
-    }));
-
-    // Schedule next wave with level-adjusted delay
+    
+    const adjustedEnemyCount = waveNumber === 0 && level === 1 ? 5 : enemiesInThisWave;
+    
+    // Call createFormation with the appropriate parameters
+    createFormation(formationType, adjustedEnemyCount, startRow, level);
+    
     if (waveNumber < config.maxWaves - 1) {
+      // Schedule next wave with level-adjusted delay
       waveTimeoutRef.current = window.setTimeout(() => {
         currentWaveRef.current++;
         spawnEnemyWave(level, currentWaveRef.current, ctx);
       }, config.waveDelay);
     }
-  };
+  }, []);  // Empty dependency array with eslint-disable above
 
   const spawnEnemy = (col: number, row: number, level: number, totalEnemies: number) => {
     const config = difficultyConfigRef.current;
@@ -278,39 +295,32 @@ export default function Game() {
     enemiesRef.current.push(enemy);
   };
 
+  // Add eslint-disable for initializeLevel
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const initializeLevel = useCallback((level: number, ctx: CanvasRenderingContext2D) => {
-    // Clear existing enemies and wave timeout
-    enemiesRef.current = [];
+    // Clear previous wave timeout if exists
     if (waveTimeoutRef.current) {
       clearTimeout(waveTimeoutRef.current);
     }
     
-    // Update difficulty configuration for new level
+    // Reset wave counter
+    currentWaveRef.current = 0;
+    
+    // Clear existing enemies and bullets
+    enemiesRef.current = [];
+    
+    // Update difficulty config
     difficultyConfigRef.current = getDifficultyConfig(level);
     
-    currentWaveRef.current = 0;
+    // Spawn first wave
+    spawnEnemyWave(level, 0, ctx);
+    
+    // Update enemy count for this level - changed to use 0 since we'll add enemies as they spawn
     setGameState(prev => ({
       ...prev,
       enemyCount: 0,
       victory: false
     }));
-
-    // Show level announcement
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-    ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
-    ctx.fillStyle = '#ffffff';
-    ctx.font = '48px Arial';
-    ctx.textAlign = 'center';
-    ctx.fillText(`Level ${level}`, GAME_WIDTH/2, GAME_HEIGHT/2);
-    ctx.font = '24px Arial';
-    ctx.fillText('Get Ready!', GAME_WIDTH/2, GAME_HEIGHT/2 + 50);
-
-    // Delay the first wave to show level announcement
-    setTimeout(() => {
-      // Spawn first wave
-      spawnEnemyWave(level, 0, ctx);
-    }, 1500);
   }, [spawnEnemyWave]);
 
   // Reset game
@@ -541,7 +551,7 @@ export default function Game() {
       player.draw(ctx);
 
       // Update and draw enemies
-      enemiesRef.current.forEach((enemy, index) => {
+      enemiesRef.current.forEach((enemy, _i) => {
         enemy.update();
         enemy.draw(ctx);
         
@@ -968,7 +978,7 @@ export default function Game() {
     };
   }, []);
 
-  // Add eslint-disable for handleLevelComplete
+  // Add eslint-disable for handleLevelComplete 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const handleLevelComplete = useCallback((ctx: CanvasRenderingContext2D, nextLevel: number) => {
     // Show level text animation
@@ -985,6 +995,7 @@ export default function Game() {
     }, 2500); // 2.5 seconds
   }, [initializeLevel]);
 
+  // Add eslint-disable for the gameOver useEffect
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (gameState.isGameOver) {
