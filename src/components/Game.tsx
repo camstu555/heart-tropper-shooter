@@ -19,6 +19,52 @@ const STAR_COUNT = 50;
 // Mobile control constants
 const MOBILE_CONTROL_HEIGHT = 120; // Height of mobile controls area
 
+// Add utility functions for level persistence
+const saveGameProgress = (level: number) => {
+  try {
+    localStorage.setItem('asteroidGameLevel', level.toString());
+    console.log(`Saved game progress: level ${level}`);
+  } catch (error) {
+    console.error('Failed to save game progress:', error);
+  }
+};
+
+const loadGameProgress = (): number => {
+  try {
+    const savedLevel = localStorage.getItem('asteroidGameLevel');
+    if (savedLevel) {
+      const level = parseInt(savedLevel, 10);
+      console.log(`Loaded saved game level: ${level}`);
+      return level;
+    }
+  } catch (error) {
+    console.error('Failed to load game progress:', error);
+  }
+  return 1; // Default to level 1
+};
+
+// New function to clear game progress
+const clearGameProgress = () => {
+  try {
+    localStorage.removeItem('asteroidGameLevel');
+    console.log('Cleared game progress');
+  } catch (error) {
+    console.error('Failed to clear game progress:', error);
+  }
+};
+
+// Force clear localStorage on initial load to prevent issues
+try {
+  // Clear saved level when page first loads to avoid lingering state
+  localStorage.removeItem('asteroidGameLevel');
+  console.log('Cleared game progress on initial load');
+} catch (error) {
+  console.error('Failed to clear game progress on initial load:', error);
+}
+
+// At the top of the file, add a flag to track first load
+const isFirstLoad = { current: true };
+
 // Difficulty configuration
 const getDifficultyConfig = (level: number) => {
   return {
@@ -98,14 +144,22 @@ export default function Game() {
   const waveTimeoutRef = useRef<number | null>(null);
   const currentWaveRef = useRef<number>(0);
   const difficultyConfigRef = useRef(getDifficultyConfig(1));
-  const [gameState, setGameState] = useState<GameState>({
-    score: 0,
-    isGameOver: false,
-    isPaused: false,
-    health: INITIAL_HEALTH,
-    enemyCount: 0,
-    victory: false,
-    level: 1
+  
+  // Add the refs here, inside the component
+  const gameJustStartedRef = useRef(true);
+  const enableProgressionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  
+  const [gameState, setGameState] = useState<GameState>(() => {
+    // IMPORTANT: Always start at level 1 for a brand new game
+    console.log("Initializing a fresh game at level 1");
+    return {
+      score: 0,
+      isGameOver: false,
+      isPaused: false,
+      health: INITIAL_HEALTH,
+      victory: false,
+      level: 1 // Always level 1 for a new game - never load from localStorage on first load
+    };
   });
   const prevDirectionRef = useRef<'left' | 'right' | null>(null);
   const [soundVolume, setSoundVolume] = useState<number>(50);
@@ -122,21 +176,97 @@ export default function Game() {
   const [showLevelText, setShowLevelText] = useState(false);
   const [gameOverFadeIn, setGameOverFadeIn] = useState(false);
   const gameOverTimeoutRef = useRef<number | null>(null);
+  const levelProgressTimeoutRef = useRef<number | null>(null);
 
   // Update difficulty config when level changes
   useEffect(() => {
     difficultyConfigRef.current = getDifficultyConfig(gameState.level);
   }, [gameState.level]);
 
-  // Fix spawnEnemyWave dependencies by moving createFormation inside
+  // Update the initialization useEffect
+  useEffect(() => {
+    console.log("*** INITIAL COMPONENT MOUNT ***");
+    
+    // Forcefully clear any localStorage state
+    try {
+      localStorage.removeItem('asteroidGameLevel');
+      console.log("Cleared localStorage on initial component mount");
+    } catch (e) {
+      console.error("Error clearing localStorage:", e);
+    }
+    
+    // Force game to start at level 1
+    setGameState(prevState => {
+      if (prevState.level !== 1) {
+        console.log(`Forcing initial level to 1 (was ${prevState.level})`);
+        return {
+          ...prevState,
+          level: 1
+        };
+      }
+      return prevState;
+    });
+    
+    // Mark the game as just started to prevent immediate level advancement
+    gameJustStartedRef.current = true;
+    
+    // After 3 seconds, allow level progression
+    const enableProgressionTimer = setTimeout(() => {
+      console.log("Initial load cooldown complete - enabling level progression");
+      gameJustStartedRef.current = false;
+    }, 3000);
+    
+    // Store the enableProgressionTimer in the ref
+    enableProgressionTimerRef.current = enableProgressionTimer;
+    
+    return () => {
+      // Clean up the enableProgressionTimer
+      clearTimeout(enableProgressionTimer);
+    };
+  }, []);
+
+  // Immediately clear the localStorage on first load
+  useEffect(() => {
+    if (isFirstLoad.current) {
+      console.log("FIRST LOAD: Clearing localStorage and forcing level 1");
+      clearGameProgress();
+      
+      // Force level 1 explicitly
+      setGameState(prev => ({
+        ...prev,
+        level: 1
+      }));
+      
+      // Reset wave counter
+      currentWaveRef.current = 0;
+      
+      // Mark first load complete
+      isFirstLoad.current = false;
+    }
+  }, []);
+
+  // Modify spawnEnemyWave to directly check level completion logic when the last wave is spawned
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const spawnEnemyWave = useCallback((level: number, waveNumber: number, ctx: CanvasRenderingContext2D) => {
     const config = difficultyConfigRef.current;
     
+    console.log(`Spawning wave ${waveNumber} of level ${level}, max waves: ${config.maxWaves}`);
+    
     if (waveNumber >= config.maxWaves) {
+      console.log(`No more waves for level ${level} (max: ${config.maxWaves})`);
+      
+      // Extra check: if we somehow got called with a wave number beyond max,
+      // and there are no enemies, let's complete the level
+      if (enemiesRef.current.length === 0 && !gameState.victory && !gameJustStartedRef.current) {
+        console.log("Beyond max waves with no enemies - forcing level completion");
+        handleLevelComplete(ctx, level + 1);
+      }
       return; // No more waves for this level
     }
 
+    // Always update the current wave reference to track wave progression
+    currentWaveRef.current = waveNumber;
+    
     const startRow = waveNumber;
     const enemiesInThisWave = config.baseEnemiesPerWave;
     
@@ -218,10 +348,13 @@ export default function Game() {
       }
       
       // Update enemy count
-      setGameState(prev => ({
-        ...prev,
-        enemyCount: prev.enemyCount + enemyCount
-      }));
+      setGameState(prev => {
+        // Add a console log to debug
+        console.log(`Adding enemies for level ${level}, count: ${enemyCount}`);
+        return {
+          ...prev
+        };
+      });
     };
     
     // Choose a random formation
@@ -251,12 +384,38 @@ export default function Game() {
     // Call createFormation with the appropriate parameters
     createFormation(formationType, adjustedEnemyCount, startRow, level);
     
+    // After spawning this wave, check if it's the last wave
+    const isLastWave = waveNumber >= config.maxWaves - 1;
+    
     if (waveNumber < config.maxWaves - 1) {
       // Schedule next wave with level-adjusted delay
+      console.log(`Scheduling next wave ${waveNumber + 1} for level ${level} with delay ${config.waveDelay}ms`);
+      
+      // Clear any existing wave timeout to prevent double scheduling
+      if (waveTimeoutRef.current) {
+        clearTimeout(waveTimeoutRef.current);
+        waveTimeoutRef.current = null;
+      }
+      
       waveTimeoutRef.current = window.setTimeout(() => {
-        currentWaveRef.current++;
-        spawnEnemyWave(level, currentWaveRef.current, ctx);
+        console.log(`Starting next wave ${waveNumber + 1} for level ${level}`);
+        spawnEnemyWave(level, waveNumber + 1, ctx);
       }, config.waveDelay);
+    } else {
+      console.log(`This was the last wave (${waveNumber}) for level ${level}, no more waves will be scheduled`);
+      
+      // If this is the last wave, start a timer to check if enemies are eliminated
+      const checkLastWaveTimer = setTimeout(() => {
+        if (enemiesRef.current.length === 0 && !gameState.victory) {
+          console.log("Last wave timer: All enemies eliminated, completing level");
+          handleLevelComplete(ctx, level + 1);
+        }
+      }, 2000); // Check after 2 seconds to give time for enemies to be killed
+      
+      // Clean up the timer if component unmounts
+      return () => {
+        clearTimeout(checkLastWaveTimer);
+      };
     }
   }, []);  // Empty dependency array with eslint-disable above
 
@@ -298,9 +457,13 @@ export default function Game() {
   // Add eslint-disable for initializeLevel
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const initializeLevel = useCallback((level: number, ctx: CanvasRenderingContext2D) => {
+    console.log(`initializeLevel called for level: ${level}`);
+    
     // Clear previous wave timeout if exists
     if (waveTimeoutRef.current) {
+      console.log(`Clearing existing wave timeout for level ${level}`);
       clearTimeout(waveTimeoutRef.current);
+      waveTimeoutRef.current = null;
     }
     
     // Reset wave counter
@@ -312,38 +475,132 @@ export default function Game() {
     // Update difficulty config
     difficultyConfigRef.current = getDifficultyConfig(level);
     
-    // Spawn first wave
-    spawnEnemyWave(level, 0, ctx);
+    // Reset game state before spawning
+    setGameState(prev => {
+      console.log(`Resetting state before spawning level ${level}`);
+      return {
+        ...prev,
+        victory: false
+      };
+    });
     
-    // Update enemy count for this level - changed to use 0 since we'll add enemies as they spawn
-    setGameState(prev => ({
-      ...prev,
-      enemyCount: 0,
-      victory: false
-    }));
+    // Wait for state update before spawning
+    setTimeout(() => {
+      // Spawn first wave
+      console.log(`About to spawn first wave for level ${level}`);
+      spawnEnemyWave(level, 0, ctx);
+    }, 0);
   }, [spawnEnemyWave]);
 
-  // Reset game
-  const resetGame = useCallback(() => {
-    if (waveTimeoutRef.current) {
-      clearTimeout(waveTimeoutRef.current);
+  // Update the startNewGame function to set the "just started" flag
+  const startNewGame = () => {
+    console.log("=== STARTING COMPLETELY NEW GAME ===");
+    
+    // Mark the game as just started
+    gameJustStartedRef.current = true;
+    
+    // Forcefully clear any localStorage state
+    try {
+      localStorage.removeItem('asteroidGameLevel');
+      console.log("Cleared localStorage for a fresh start");
+    } catch (e) {
+      console.error("Error clearing localStorage:", e);
     }
     
+    // Clear all timeouts
+    if (waveTimeoutRef.current) {
+      clearTimeout(waveTimeoutRef.current);
+      waveTimeoutRef.current = null;
+      console.log("Cleared wave timeout");
+    }
+    
+    if (levelProgressTimeoutRef.current) {
+      clearTimeout(levelProgressTimeoutRef.current);
+      levelProgressTimeoutRef.current = null;
+      console.log("Cleared level progress timeout");
+    }
+    
+    if (gameOverTimeoutRef.current) {
+      clearTimeout(gameOverTimeoutRef.current);
+      gameOverTimeoutRef.current = null;
+      console.log("Cleared game over timeout");
+    }
+    
+    // Clear all game objects
     enemiesRef.current = [];
+    console.log("Cleared enemies array");
+    
+    // Reset all game state
     currentWaveRef.current = 0;
     prevDirectionRef.current = null;
-    difficultyConfigRef.current = getDifficultyConfig(1);
     
+    // Force difficulty config to level 1
+    difficultyConfigRef.current = getDifficultyConfig(1);
+    console.log("Reset difficulty to level 1");
+    
+    // Reset UI states
+    setGameOverFadeIn(false);
+    setShowLevelText(false);
+    setIsShooting(false);
+    setIsMovingLeft(false);
+    setIsMovingRight(false);
+    setIsMovingUp(false);
+    setIsMovingDown(false);
+    
+    // Explicitly set state to level 1
     setGameState({
       score: 0,
       isGameOver: false,
       isPaused: false,
       health: INITIAL_HEALTH,
-      enemyCount: 0,
       victory: false,
-      level: 1
+      level: 1 // EXPLICITLY set to level 1
     });
-    setGameOverFadeIn(false);
+    console.log("Reset game state with level = 1");
+    
+    // We need to wait for state updates to propagate
+    setTimeout(() => {
+      // Double-check that level is still 1
+      if (gameState.level !== 1) {
+        console.log(`WARNING: level somehow changed to ${gameState.level}, forcing back to 1`);
+        setGameState(prev => ({
+          ...prev,
+          level: 1
+        }));
+      }
+      
+      // Get the current canvas context
+      const canvas = canvasRef.current;
+      if (canvas) {
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          console.log("Starting first wave of level 1");
+          
+          // Reset wave counter again to be safe
+          currentWaveRef.current = 0;
+          
+          // Initialize level 1
+          spawnEnemyWave(1, 0, ctx);
+          
+          console.log("New game initialized and level 1 wave 0 spawned");
+          
+          // After 3 seconds, allow level progression
+          setTimeout(() => {
+            console.log("Game initialization complete - enabling level progression");
+            gameJustStartedRef.current = false;
+          }, 3000);
+        } else {
+          console.error("Failed to get canvas context");
+        }
+      } else {
+        console.error("Failed to get canvas reference");
+      }
+    }, 100); // Wait a bit for React state updates
+  };
+
+  // Reset game
+  const resetGame = useCallback(() => {
+    startNewGame();
   }, []);
 
   // Handle audio volume changes
@@ -378,6 +635,9 @@ export default function Game() {
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
+    console.log(`*** MAIN GAME EFFECT INITIALIZING (Level: ${gameState.level}) ***`);
+    console.log(`Game just started status: ${gameJustStartedRef.current ? 'YES' : 'no'}`);
+
     // Initialize AudioManager
     const audioManager = AudioManager.getInstance();
     
@@ -406,7 +666,31 @@ export default function Game() {
     }
 
     // Initialize first level
-    initializeLevel(gameState.level, ctx);
+    console.log("Initializing first level of the game");
+    if (waveTimeoutRef.current) {
+      console.log("Clearing any existing wave timeouts before first level init");
+      clearTimeout(waveTimeoutRef.current);
+      waveTimeoutRef.current = null;
+    }
+    enemiesRef.current = []; // Ensure we're starting with an empty enemies array
+    
+    // Lock level progression during initialization
+    gameJustStartedRef.current = true;
+    console.log("LOCKED level progression during initialization");
+    
+    // Initialize the current level
+    const initialLevel = gameState.level;
+    console.log(`Starting game at level ${initialLevel}`);
+    initializeLevel(initialLevel, ctx);
+
+    // After 3 seconds, allow level progression
+    const enableProgressionTimer = setTimeout(() => {
+      console.log("Main effect initialization complete - enabling level progression");
+      gameJustStartedRef.current = false;
+    }, 3000);
+
+    // Store the enableProgressionTimer in the ref
+    enableProgressionTimerRef.current = enableProgressionTimer;
 
     const createExplosion = (x: number, y: number, color: string) => {
       for (let i = 0; i < 10; i++) {
@@ -549,6 +833,109 @@ export default function Game() {
       // Update and draw player
       player.update();
       player.draw(ctx);
+
+      // Update the checkForLevelCompletion function to be more reliable
+      const checkForLevelCompletion = () => {
+        // Skip all checks if the game just started
+        if (gameJustStartedRef.current) {
+          return;
+        }
+        
+        // Only log when enemies are zero to avoid spam
+        if (enemiesRef.current.length === 0) {
+          logGameState("Level completion check - no enemies remaining");
+        }
+        
+        // Direct check if level should be completed (no enemies and we're on the last wave)
+        const isLastWaveComplete = currentWaveRef.current >= difficultyConfigRef.current.maxWaves - 1;
+        
+        // FORCE LEVEL COMPLETION if we've killed all enemies and there are no more waves coming
+        if (
+          enemiesRef.current.length === 0 && 
+          !gameState.isPaused && 
+          !gameState.isGameOver && 
+          !gameState.victory &&
+          !waveTimeoutRef.current && // No more waves are scheduled
+          isLastWaveComplete && // This is the last wave
+          !gameJustStartedRef.current // Game is not just starting
+        ) {
+          // Get the current context
+          const canvas = canvasRef.current;
+          if (canvas) {
+            const currentCtx = canvas.getContext('2d');
+            if (currentCtx) {
+              // IMMEDIATE level completion if all conditions are met
+              console.log("=== CRITICAL CHECK: Last wave with no enemies and no pending waves - FORCING level completion ===");
+              const nextLevel = gameState.level + 1;
+              handleLevelComplete(currentCtx, nextLevel);
+              return; // Exit early - we've triggered level completion
+            }
+          }
+        }
+        
+        // If there are no enemies and the game is not paused, in victory state, or game over
+        if (
+          enemiesRef.current.length === 0 && 
+          !gameState.isPaused && 
+          !gameState.isGameOver && 
+          !gameState.victory &&
+          !gameJustStartedRef.current // Game is not just starting
+        ) {
+          if (isLastWaveComplete) {
+            // If we're on the last wave and all enemies are defeated, immediately complete the level
+            console.log("Last wave complete with no enemies - immediately completing level");
+            if (!gameState.victory) {
+              const nextLevel = gameState.level + 1;
+              // Get the current context
+              const canvas = canvasRef.current;
+              if (canvas) {
+                const currentCtx = canvas.getContext('2d');
+                if (currentCtx) {
+                  handleLevelComplete(currentCtx, nextLevel);
+                }
+              }
+            }
+            return; // Skip the timeout logic
+          }
+        
+          // If there's still a wave timeout, it means we're between waves
+          if (waveTimeoutRef.current) {
+            // Let the wave system handle it - more enemies will spawn soon
+            console.log("No enemies, but wave timeout active - waiting for next wave");
+          } else {
+            // No enemies and no pending waves = level complete!
+            console.log("All enemies defeated with no waves pending - starting completion timer");
+            
+            // Set a timer to force level completion after 1 second if not already triggered
+            if (!levelProgressTimeoutRef.current && !gameJustStartedRef.current) {
+              console.log("Setting level progression timer");
+              levelProgressTimeoutRef.current = window.setTimeout(() => {
+                console.log("Force advancing level via timer");
+                const nextLevel = gameState.level + 1;
+                
+                // Only trigger if not already in victory state and not just started
+                if (!gameState.victory && !gameJustStartedRef.current) {
+                  console.log(`Advancing to level ${nextLevel}`);
+                  // Get the current context
+                  const canvas = canvasRef.current;
+                  if (canvas) {
+                    const currentCtx = canvas.getContext('2d');
+                    if (currentCtx) {
+                      // Call the handleLevelComplete with the current context
+                      handleLevelComplete(currentCtx, nextLevel);
+                    }
+                  }
+                }
+                
+                levelProgressTimeoutRef.current = null;
+              }, 1000); // Force level progression after 1 second of no enemies
+            }
+          }
+        }
+      };
+      
+      // Call the function
+      checkForLevelCompletion();
 
       // Update and draw enemies
       enemiesRef.current.forEach((enemy) => {
@@ -711,33 +1098,21 @@ export default function Game() {
                 
                 const powerUp = enemy.dropPowerUp();
                 if (powerUp) powerUps.push(powerUp);
+                
+                // Remove the enemy
                 enemiesRef.current.splice(i, 1);
                 
-                setGameState(prev => {
-                  const newEnemyCount = prev.enemyCount - 1;
-                  if (newEnemyCount === 0) {
-                    // Level completed
-                    const nextLevel = prev.level + 1;
-                    
-                    // Use our new function to handle level completion
-                    handleLevelComplete(ctx, nextLevel);
-                    
-                    return {
-                      ...prev,
-                      score: prev.score + 100,
-                      enemyCount: newEnemyCount,
-                      level: nextLevel,
-                      victory: true
-                    };
-                  }
-                  return {
-                    ...prev,
-                    score: prev.score + 100,
-                    enemyCount: newEnemyCount
-                  };
-                });
+                // Award score and update state
+                setGameState(prev => ({
+                  ...prev,
+                  score: prev.score + 100
+                }));
+                
+                // Log enemy count (moved level completion check to main game loop)
+                console.log(`Enemy killed. Enemies remaining: ${enemiesRef.current.length}`);
+                
+                break;
               }
-              break;
             }
           }
         }
@@ -922,6 +1297,23 @@ export default function Game() {
       
       // Cancel animation frame
       cancelAnimationFrame(animationFrameId);
+      
+      // Clean up the progression timer
+      if (enableProgressionTimerRef.current) {
+        clearTimeout(enableProgressionTimerRef.current);
+        enableProgressionTimerRef.current = null;
+      }
+      
+      // Clear all timeouts
+      if (waveTimeoutRef.current) {
+        clearTimeout(waveTimeoutRef.current);
+        waveTimeoutRef.current = null;
+      }
+      
+      if (levelProgressTimeoutRef.current) {
+        clearTimeout(levelProgressTimeoutRef.current);
+        levelProgressTimeoutRef.current = null;
+      }
     };
   }, [gameState.level, gameState.isPaused, gameState.isGameOver, isMobile, isMovingLeft, isMovingRight, isMovingUp, isMovingDown, isShooting, canvasScale]);
 
@@ -978,22 +1370,175 @@ export default function Game() {
     };
   }, []);
 
-  // Add eslint-disable for handleLevelComplete 
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+  // Update the handleLevelComplete function to respect the gameJustStartedRef flag
   const handleLevelComplete = useCallback((ctx: CanvasRenderingContext2D, nextLevel: number) => {
+    console.log(`handleLevelComplete called with nextLevel: ${nextLevel}`);
+    
+    // BLOCK LEVEL PROGRESSION if the game just started
+    if (gameJustStartedRef.current) {
+      console.log("BLOCKED: Level progression attempted while game is initializing");
+      return;
+    }
+    
+    // Guard against multiple calls in a short period
+    if (gameState.victory) {
+      console.log("Victory already in progress, ignoring duplicate level completion call");
+      return;
+    }
+    
+    // Save progress to localStorage
+    saveGameProgress(nextLevel);
+    
+    // Clear any level progress timer
+    if (levelProgressTimeoutRef.current) {
+      console.log("Clearing existing level progress timer");
+      window.clearTimeout(levelProgressTimeoutRef.current);
+      levelProgressTimeoutRef.current = null;
+    }
+    
+    // Clear any wave timeout
+    if (waveTimeoutRef.current) {
+      console.log("Clearing wave timeout during level completion");
+      window.clearTimeout(waveTimeoutRef.current);
+      waveTimeoutRef.current = null;
+    }
+    
     // Show level text animation
     setShowLevelText(true);
+    console.log("Level completion text shown");
+    
+    // Store context reference to ensure it's available when we need it
+    const contextRef = ctx;
+    
+    // Immediately update level in game state
+    setGameState(prev => {
+      console.log(`Updating to level ${nextLevel} immediately`);
+      return {
+        ...prev,
+        level: nextLevel,
+        victory: true
+      };
+    });
     
     // Schedule next level with shorter delay to match new animation duration
     setTimeout(() => {
-      initializeLevel(nextLevel, ctx);
+      console.log(`Beginning initialization for level ${nextLevel}`);
+      
+      // Reset wave counter
+      currentWaveRef.current = 0;
+      
+      // Clear existing enemies and bullets
+      enemiesRef.current = [];
+      console.log(`Cleared enemies array for level ${nextLevel}, length now: ${enemiesRef.current.length}`);
+      
+      // Update difficulty config
+      difficultyConfigRef.current = getDifficultyConfig(nextLevel);
+      
+      // Make sure we have the context
+      if (!contextRef) {
+        console.error("Canvas context is missing when trying to initialize next level!");
+        return;
+      }
+      
+      // Wait for React to process state updates before spawning new enemies
+      setTimeout(() => {
+        // Check the enemy array before spawning
+        console.log(`About to spawn enemies for level ${nextLevel}, current enemies count: ${enemiesRef.current.length}`);
+        
+        // Spawn first wave with the stored context
+        spawnEnemyWave(nextLevel, 0, contextRef);
+        
+        console.log(`Spawned first wave for level ${nextLevel}`);
+        
+        // Reset victory flag
+        setGameState(prev => {
+          console.log(`Resetting victory flag for level ${nextLevel}`);
+          return {
+            ...prev,
+            victory: false
+          };
+        });
+      }, 100); // Increased delay to ensure state updates are processed
       
       // Explicitly set showLevelText to false after initializing the next level
       setTimeout(() => {
         setShowLevelText(false);
-      }, 100);
+        console.log("Level text hidden");
+      }, 150);
     }, 2500); // 2.5 seconds
-  }, [initializeLevel]);
+  }, []); // No dependencies needed since we're using refs and inlining the initialization logic
+
+  // Update the observer to check the gameJustStartedRef flag
+  useEffect(() => {
+    // Force check level completion every 500ms
+    const checkEnemiesInterval = setInterval(() => {
+      // Skip if game is paused, over, in victory animation, or just started
+      if (gameState.isPaused || gameState.isGameOver || gameState.victory || gameJustStartedRef.current) {
+        return;
+      }
+      
+      // Use try-catch to handle any potential errors
+      try {
+        // If there are no enemies left
+        if (enemiesRef.current.length === 0) {
+          console.log("Observer check: No enemies left");
+          
+          // Check if we're on the last wave
+          const isLastWave = currentWaveRef.current >= difficultyConfigRef.current.maxWaves - 1;
+          
+          // Get the wave timeout status
+          const hasActiveWaveTimeout = !!waveTimeoutRef.current;
+          
+          // Log the state for debugging
+          console.log({
+            level: gameState.level,
+            currentWave: currentWaveRef.current,
+            maxWaves: difficultyConfigRef.current.maxWaves,
+            isLastWave,
+            hasActiveWaveTimeout,
+            victory: gameState.victory,
+            gameJustStarted: gameJustStartedRef.current
+          });
+          
+          // If this is the last wave OR there are no more wave timeouts, and we're not already transitioning
+          if ((isLastWave || !hasActiveWaveTimeout) && 
+              !gameState.victory && 
+              !levelProgressTimeoutRef.current &&
+              !gameJustStartedRef.current) { // Ensure game isn't just starting
+            console.log("Observer triggering level completion!");
+            
+            // Get canvas context
+            const canvas = canvasRef.current;
+            if (canvas) {
+              const ctx = canvas.getContext('2d');
+              if (ctx) {
+                // Force level progress - add a slight delay to avoid race conditions
+                setTimeout(() => {
+                  // Final check that conditions still hold
+                  if (enemiesRef.current.length === 0 && 
+                      !gameState.victory && 
+                      !gameState.isPaused &&
+                      !gameState.isGameOver &&
+                      !gameJustStartedRef.current) { // Double-check game isn't just starting
+                    console.log("OBSERVER FORCING LEVEL COMPLETION");
+                    handleLevelComplete(ctx, gameState.level + 1);
+                  } else {
+                    console.log("Conditions changed, canceling level completion");
+                  }
+                }, 100);
+              }
+            }
+          }
+        }
+      } catch (error) {
+        console.error("Error in level completion check interval:", error);
+      }
+    }, 500); // Check every 500ms
+    
+    return () => {
+      clearInterval(checkEnemiesInterval);
+    };
+  }, [gameState.level, gameState.isPaused, gameState.isGameOver, gameState.victory, handleLevelComplete]);
 
   // Add eslint-disable for the gameOver useEffect
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1019,6 +1564,14 @@ export default function Game() {
       }
     };
   }, [gameState.isGameOver]);
+
+  // Keep this function but simplify it since we're not using debug mode anymore
+  const logGameState = (message: string) => {
+    // Only log in development environment if needed
+    if (process.env.NODE_ENV === 'development') {
+      console.log(message);
+    }
+  };
 
   return (
     <div 
@@ -1061,11 +1614,22 @@ export default function Game() {
         className="bg-black"
       />
       
-      {/* Game UI overlay */}
+      {/* Simplified Game UI overlay with health bar */}
       <div className="absolute top-0 left-0 w-full p-4 flex justify-between text-white">
         <div>Score: {gameState.score}</div>
         <div>Level: {gameState.level}</div>
-        <div>Health: {gameState.health}</div>
+        <div className="flex flex-col">
+          <div className="flex items-center">
+            <span className="mr-2">Health:</span>
+            <div className="w-24 h-4 bg-gray-800 rounded overflow-hidden">
+              <div 
+                className="h-full bg-red-600 transition-all duration-300"
+                style={{ width: `${(gameState.health / INITIAL_HEALTH) * 100}%` }}
+              ></div>
+            </div>
+          </div>
+          <span className="ml-2">{gameState.health}</span>
+        </div>
       </div>
       
       {/* Level complete text animation */}
@@ -1076,7 +1640,7 @@ export default function Game() {
         />
       )}
       
-      {/* Game over screen with delayed background fade */}
+      {/* Game over screen with delayed background fade - keep this */}
       {gameState.isGameOver && (
         <div className="absolute inset-0 flex flex-col items-center justify-center z-30">
           <div 
@@ -1086,7 +1650,7 @@ export default function Game() {
             <h2 className="text-5xl md:text-6xl text-red-500 font-bold mb-8 animate-pulse">Game Over</h2>
             <p className="text-white text-2xl mb-6">Final Score: {gameState.score}</p>
             <button 
-              onClick={resetGame}
+              onClick={startNewGame}
               className="px-6 py-3 bg-red-500 text-white text-xl rounded-lg hover:bg-red-600 transition"
             >
               Try Again
@@ -1140,11 +1704,35 @@ export default function Game() {
           <p className="text-white">Get ready for level {gameState.level}...</p>
         </div>
       )}
+      
+      {/* Simplified header with health bar */}
+      <div className="absolute top-0 w-full flex justify-between items-center p-4 bg-black bg-opacity-50">
+        <h2 className="text-xl text-white">Asteroid Game - Level {gameState.level}</h2>
+        <div className="flex items-center">
+          <div className="flex items-center mr-4">
+            <span className="text-white mr-2">Health:</span>
+            <div className="w-24 h-4 bg-gray-800 rounded overflow-hidden">
+              <div 
+                className="h-full bg-red-600 transition-all duration-300"
+                style={{ width: `${(gameState.health / INITIAL_HEALTH) * 100}%` }}
+              ></div>
+            </div>
+          </div>
+          <button 
+            onClick={() => setGameState(prev => ({ ...prev, isPaused: !prev.isPaused }))}
+            className="px-3 py-1 bg-blue-500 text-white rounded hover:bg-blue-600 transition"
+          >
+            {gameState.isPaused ? 'Resume' : 'Pause'}
+          </button>
+        </div>
+        <div className="text-white">
+          <span>Score: {gameState.score}</span>
+        </div>
+      </div>
     </div>
   );
 }
 
-// Add this function near the other helper functions (outside gameLoop)
 // Function to check collision between two bullets
 const checkBulletCollision = (bullet1: Bullet, bullet2: Bullet): boolean => {
   // Use a slightly larger collision area for bullets to make it easier to hit enemy bullets

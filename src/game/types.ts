@@ -3,7 +3,6 @@ export interface GameState {
   isGameOver: boolean;
   isPaused: boolean;
   health: number;
-  enemyCount: number;
   victory: boolean;
   level: number;
 }
