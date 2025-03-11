@@ -551,7 +551,7 @@ export default function Game() {
       player.draw(ctx);
 
       // Update and draw enemies
-      enemiesRef.current.forEach((enemy, _i) => {
+      enemiesRef.current.forEach((enemy) => {
         enemy.update();
         enemy.draw(ctx);
         
