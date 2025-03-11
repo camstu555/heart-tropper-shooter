@@ -19,8 +19,6 @@ export class Player implements GameObject {
   powerUpTimer: number = 0;
   color: string = '#4488ff';
   fireRate: number = 250; // Time in ms between shots
-  visible: boolean = true; // Add visible property to control whether player is drawn
-  isAlive: boolean = true; // Add isAlive property to track if player is still alive
   private playerImage: HTMLImageElement | null = null;
   private imageLoaded: boolean = false;
 
@@ -66,9 +64,7 @@ export class Player implements GameObject {
     }
   }
 
-  draw(ctx: CanvasRenderingContext2D): void {
-    if (!this.visible) return; // Skip drawing if not visible
-    
+  draw(ctx: CanvasRenderingContext2D) {
     // Draw shield if active
     if (this.hasShield) {
       ctx.strokeStyle = '#00ffff';
@@ -149,26 +145,5 @@ export class Player implements GameObject {
   makeInvulnerable() {
     this.invulnerable = true;
     this.invulnerableTimer = Date.now() + 2000; // 2 seconds of invulnerability
-  }
-
-  hit() {
-    // If the player has a shield, they don't take damage
-    if (this.hasShield) {
-      this.hasShield = false;
-      this.shieldTimer = 0;
-      return;
-    }
-    
-    if (!this.invulnerable) {
-      // Make player invulnerable briefly after being hit
-      this.makeInvulnerable();
-      
-      // The Game component handles health reduction and game over state
-      // But we still need to update the isAlive status when the player dies
-      // This will be checked by the Game component to determine if the player should be killed
-      return true; // Return true to indicate the hit was successful
-    }
-    
-    return false; // Return false if the hit wasn't successful (player was invulnerable)
   }
 } 

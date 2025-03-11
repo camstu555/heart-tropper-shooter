@@ -320,12 +320,6 @@ export default function Game() {
       clearTimeout(waveTimeoutRef.current);
     }
     
-    // Reset player state
-    if (player) {
-      player.isAlive = true;  // Reset player alive state
-      player.visible = true;  // Make player visible again
-    }
-    
     enemiesRef.current = [];
     currentWaveRef.current = 0;
     prevDirectionRef.current = null;
@@ -341,7 +335,6 @@ export default function Game() {
       level: 1
     });
     setGameOverFadeIn(false);
-    isGameOverSoundPlayed = false; // Reset sound played flag
   };
 
   // Handle audio volume changes
@@ -546,67 +539,12 @@ export default function Game() {
 
       // Update and draw player
       player.update();
-      if (player.visible !== false) {
-        player.draw(ctx);
-      }
+      player.draw(ctx);
 
       // Update and draw enemies
       enemiesRef.current.forEach((enemy, index) => {
         enemy.update();
         enemy.draw(ctx);
-        
-        // Check for direct enemy-player collision
-        if (player.isAlive && 
-            enemy.y + enemy.height > player.y && 
-            enemy.y < player.y + player.height &&
-            enemy.x + enemy.width > player.x && 
-            enemy.x < player.x + player.width) {
-          
-          // Use the player.hit() method
-          if (player.hit()) {
-            // Get current health from game state
-            const health = gameState.health - 1;
-            
-            if (health <= 0) {
-              // Player died, set isAlive to false
-              player.isAlive = false;
-              
-              // Clear any level text that might be showing
-              setShowLevelText(false);
-              
-              // Visually "hide" the player without affecting position (needed for explosion positioning)
-              player.visible = false;
-              
-              // Game over, show player explosion
-              createGIFExplosion(player.x + player.width / 2, player.y + player.height / 2, 'player');
-              
-              // Play player explosion sound
-              audioManager.play('playerExplode');
-              
-              // Set game over state immediately
-              setGameState(prev => ({
-                ...prev,
-                health: 0,
-                isGameOver: true
-              }));
-              
-              // Wait 2 seconds before fading in the black background
-              setTimeout(() => {
-                setGameOverFadeIn(true);
-              }, 2000);
-            } else {
-              // Player was hit but still alive
-              // Play player damage sound  
-              audioManager.play('playerDamage');
-              
-              // Update health in game state
-              setGameState(prev => ({
-                ...prev,
-                health: prev.health - 1
-              }));
-            }
-          }
-        }
         
         if (enemy.canShoot()) {
           bullets.push(enemy.shoot());
@@ -665,53 +603,35 @@ export default function Game() {
           if (!player.invulnerable && !player.hasShield && playerBullet.checkCollision(player)) {
             bullets.splice(playerBulletIndex, 1);
             createExplosion(player.x + player.width / 2, player.y, '#ff0000');
+            player.makeInvulnerable();
+            // Play player damage sound
+            audioManager.play('playerDamage');
             
-            // Use the player.hit() method to handle damage
-            if (player.hit()) {
-              // Get current health from game state
-              const health = gameState.health - 1;
+            const health = gameState.health - 1;
+            if (health <= 0) {
+              // Game over, show player explosion
+              createGIFExplosion(player.x + player.width / 2, player.y + player.height / 2, 'player');
               
-              if (health <= 0) {
-                // Player died, set isAlive to false
-                player.isAlive = false;
-                
-                // Clear any level text that might be showing
-                setShowLevelText(false);
-                
-                // Visually "hide" the player without affecting position (needed for explosion positioning)
-                player.visible = false;
-                
-                // Game over, show player explosion
-                createGIFExplosion(player.x + player.width / 2, player.y + player.height / 2, 'player');
-                
-                // Play player explosion sound
-                audioManager.play('playerExplode');
-                
-                // Set game over state immediately to show the text
-                setGameState(prev => ({
-                  ...prev,
-                  health: 0,
-                  isGameOver: true
-                }));
-                
-                // Wait 2 seconds before fading in the black background
-                setTimeout(() => {
-                  setGameOverFadeIn(true);
-                }, 2000);
-                
-                return; // Skip the normal setGameState call below
-              }
-              
-              // Player was hit but still alive
-              // Play player damage sound
-              audioManager.play('playerDamage');
-              
-              // Update health in game state
+              // Set game over state immediately to show the text
               setGameState(prev => ({
                 ...prev,
-                health: prev.health - 1
+                health: prev.health - 1,
+                isGameOver: true
               }));
+              
+              // Wait 2 seconds before fading in the black background
+              setTimeout(() => {
+                setGameOverFadeIn(true);
+              }, 2000);
+              
+              return; // Skip the normal setGameState call below
             }
+            
+            setGameState(prev => ({
+              ...prev,
+              health: prev.health - 1,
+              isGameOver: prev.health <= 1
+            }));
           }
         } else {
           // Player bullet logic
