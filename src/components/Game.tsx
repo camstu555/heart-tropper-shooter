@@ -30,8 +30,6 @@ const saveGameProgress = (level: number) => {
 };
 
 // For loadGameProgress - we don't need to remove it since it might be useful later
-// Add an eslint-disable comment to acknowledge we're intentionally not using it yet
-// @ts-ignore
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 const loadGameProgress = (): number => {
   try {
