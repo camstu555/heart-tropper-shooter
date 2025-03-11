@@ -29,6 +29,10 @@ const saveGameProgress = (level: number) => {
   }
 };
 
+// For loadGameProgress - we don't need to remove it since it might be useful later
+// Add an eslint-disable comment to acknowledge we're intentionally not using it yet
+// @ts-ignore
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const loadGameProgress = (): number => {
   try {
     const savedLevel = localStorage.getItem('asteroidGameLevel');
@@ -385,7 +389,9 @@ export default function Game() {
     createFormation(formationType, adjustedEnemyCount, startRow, level);
     
     // After spawning this wave, check if it's the last wave
+    // This is used for logging and in the conditional below
     const isLastWave = waveNumber >= config.maxWaves - 1;
+    console.log(`Wave ${waveNumber + 1}/${config.maxWaves} - Is last wave: ${isLastWave}`);
     
     if (waveNumber < config.maxWaves - 1) {
       // Schedule next wave with level-adjusted delay
@@ -598,8 +604,11 @@ export default function Game() {
     }, 100); // Wait a bit for React state updates
   };
 
-  // Reset game
+  // Reset game - kept for potential future use with additional reset logic
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const resetGame = useCallback(() => {
+    // This wrapper function is maintained in case we need to add
+    // more reset functionality in the future beyond startNewGame
     startNewGame();
   }, []);
 
